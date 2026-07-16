@@ -86,6 +86,15 @@ class MongoDBConnector:
             )
         return sorted(names)
 
+    async def list_databases(self, config: MongoDBConfig) -> list[str]:
+        if self.use_async:
+            names = await self._async_client.list_database_names()
+        else:
+            names = await asyncio.get_running_loop().run_in_executor(
+                None, self._sync_client.list_database_names
+            )
+        return sorted(names)
+
     async def get_schema(self, collection_name: str) -> pa.Schema:
         db = self._get_database()
         collection = db[collection_name]

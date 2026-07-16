@@ -87,6 +87,10 @@ class TableListResponse(BaseModel):
     tables: list[str]
 
 
+class DatabaseListResponse(BaseModel):
+    databases: list[str]
+
+
 class ConnectionMigrateRequest(BaseModel):
     tables: list[str]
     target_config: dict

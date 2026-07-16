@@ -113,6 +113,18 @@ class PostgreSQLConnector:
             cur.execute(query)
             return cur.fetchall()
 
+    async def list_databases(self, config: PostgreSQLConfig) -> list[str]:
+        query = "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
+        if self.use_async:
+            async with self._async_pool.connection() as conn, conn.cursor() as cur:
+                await cur.execute(query)
+                rows = await cur.fetchall()
+        else:
+            rows = await asyncio.get_running_loop().run_in_executor(
+                None, self._list_tables_sync, query
+            )
+        return [r[0] for r in rows]
+
     async def get_schema(self, table_name: str) -> pa.Schema:
         query = """
             SELECT column_name, data_type, is_nullable

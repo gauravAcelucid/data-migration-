@@ -10,6 +10,7 @@ from ..schemas import (
     ConnectionListResponse,
     ConnectionMigrateRequest,
     ConnectionResponse,
+    DatabaseListResponse,
     MigrationResponse,
     TableListResponse,
 )
@@ -99,6 +100,24 @@ async def get_tables(conn_id: str):
         tables = await connector.list_tables(cfg)
         logger.info("Found %d tables for connection %s", len(tables), conn_id[:8])
         return TableListResponse(tables=tables)
+    finally:
+        await connector.disconnect()
+
+
+@router.post("/{conn_id}/databases", response_model=DatabaseListResponse)
+async def get_databases(conn_id: str):
+    logger.info("POST /connections/%s/databases", conn_id[:8])
+    record = await get_connection(conn_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    source_type = record["source_type"]
+    config = record["config"]
+    connector, cfg = create_source(source_type, **config)
+    try:
+        await connector.connect(cfg)
+        databases = await connector.list_databases(cfg)
+        logger.info("Found %d databases for connection %s", len(databases), conn_id[:8])
+        return DatabaseListResponse(databases=databases)
     finally:
         await connector.disconnect()
 

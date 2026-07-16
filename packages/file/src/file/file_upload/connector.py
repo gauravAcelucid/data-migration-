@@ -78,6 +78,9 @@ class FileUploadConnector:
     async def list_tables(self, config: FileUploadConfig) -> list[str]:
         return ["files"]
 
+    async def list_databases(self, config: FileUploadConfig) -> list[str]:
+        return ["files"]
+
     async def get_schema(self, _table_name: str = "") -> pa.Schema:
         fields = [
             pa.field("filename", pa.string()),

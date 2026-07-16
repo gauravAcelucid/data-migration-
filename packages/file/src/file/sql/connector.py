@@ -100,6 +100,27 @@ class SQLConnector:
         tables = await asyncio.get_running_loop().run_in_executor(None, _list)
         return sorted(tables)
 
+    async def list_databases(self, config: SQLConfig) -> list[str]:
+        dialect = config.dialect or "postgresql"
+        if dialect == "postgresql":
+            def _list():
+                with self._engine.sync_engine.connect() as conn:
+                    rows = conn.execute(text("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"))
+                    return [r[0] for r in rows]
+        elif dialect == "mysql":
+            def _list():
+                with self._engine.sync_engine.connect() as conn:
+                    rows = conn.execute(text("SHOW DATABASES"))
+                    return [r[0] for r in rows]
+        elif dialect == "mssql":
+            def _list():
+                with self._engine.sync_engine.connect() as conn:
+                    rows = conn.execute(text("SELECT name FROM sys.databases ORDER BY name"))
+                    return [r[0] for r in rows]
+        else:
+            return [config.database]
+        return await asyncio.get_running_loop().run_in_executor(None, _list)
+
     async def get_schema(self, table_name: str) -> pa.Schema:
         async with self._engine.begin() as conn:
             def inspect_sync():

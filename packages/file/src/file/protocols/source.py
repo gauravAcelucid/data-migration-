@@ -50,5 +50,9 @@ class SourceConnector(Protocol):
         ...
 
     @abstractmethod
+    async def list_databases(self, config: BaseConfig) -> list[str]:
+        ...
+
+    @abstractmethod
     def supports_incremental(self) -> bool:
         ...
