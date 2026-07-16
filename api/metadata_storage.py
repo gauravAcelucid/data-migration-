@@ -23,6 +23,21 @@ async def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS migrations (
+                id TEXT PRIMARY KEY,
+                connection_id TEXT,
+                connection_name TEXT,
+                source_type TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                tables TEXT NOT NULL,
+                status TEXT NOT NULL,
+                result TEXT,
+                error TEXT,
+                s3_folder TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
         await conn.commit()
         logger.info("Metadata database initialized: %s", DATABASE_URL)
     finally:
@@ -64,6 +79,37 @@ async def list_connections() -> list[dict]:
                 "created_at": r[4].isoformat() if r[4] else None,
             })
         return out
+    finally:
+        await conn.close()
+
+
+async def save_migration(
+    task_id: str,
+    connection_id: str | None,
+    connection_name: str | None,
+    source_type: str,
+    target_type: str,
+    tables: list[str],
+) -> None:
+    conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "INSERT INTO migrations (id, connection_id, connection_name, source_type, target_type, tables, status, s3_folder) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, connection_id, connection_name, source_type, target_type, json.dumps(tables), "running", task_id),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def update_migration(task_id: str, status: str, result: str | None = None, error: str | None = None) -> None:
+    conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            "UPDATE migrations SET status = %s, result = %s, error = %s WHERE id = %s",
+            (status, result, error, task_id),
+        )
+        await conn.commit()
     finally:
         await conn.close()
 

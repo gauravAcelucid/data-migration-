@@ -8,7 +8,7 @@ class MongoDBConfig(BaseConfig):
 
     connection_string: str
     database: str
-    collection: str
+    collection: str | None = None
 
     max_pool_size: int = 100
     min_pool_size: int = 10

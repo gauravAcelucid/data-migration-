@@ -64,6 +64,7 @@ async def migrate_all(
     tables: list[str] | None = None,
     source_kwargs: dict | None = None,
     target_kwargs: dict | None = None,
+    s3_folder: str | None = None,
 ) -> list:
     source_kwargs = source_kwargs or {}
     target_kwargs = target_kwargs or {}
@@ -81,16 +82,11 @@ async def migrate_all(
         logger.info("Connected source=%s target=%s", source_name, target_name)
 
         table_list = tables if tables else [src_cfg.database if hasattr(src_cfg, "database") else "data"]
-        migration_ts = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
 
         for table_name in table_list:
             last_error = None
 
-            if source_name == "file_upload" and hasattr(src_cfg, 'files') and src_cfg.files:
-                first_file = Path(src_cfg.files[0]).stem
-                s3_folder = f"{first_file}_{migration_ts}"
-            else:
-                s3_folder = f"{table_name}_{migration_ts}"
+            folder = s3_folder or table_name
 
             for attempt in range(3):
                 try:
@@ -105,7 +101,7 @@ async def migrate_all(
                         async def single_gen(b=batch) -> AsyncIterator[Batch]:
                             yield b
 
-                        load_result = await tgt.load(single_gen(), s3_folder)
+                        load_result = await tgt.load(single_gen(), folder)
 
                         if load_result.errors:
                             raise ConnectorError(

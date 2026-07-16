@@ -29,7 +29,7 @@ async def seed():
     finally:
         await conn.close()
 
-    # Step 2: Create connections table
+    # Step 2: Create connections table and migrations table
     conn = await psycopg.AsyncConnection.connect(METADATA_URL)
     try:
         await conn.execute("""
@@ -41,8 +41,23 @@ async def seed():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS migrations (
+                id TEXT PRIMARY KEY,
+                connection_id TEXT,
+                connection_name TEXT,
+                source_type TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                tables TEXT NOT NULL,
+                status TEXT NOT NULL,
+                result TEXT,
+                error TEXT,
+                s3_folder TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
         await conn.commit()
-        print("Created table: connections")
+        print("Created tables: connections, migrations")
     finally:
         await conn.close()
 

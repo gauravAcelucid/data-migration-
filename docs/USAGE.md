@@ -1,6 +1,6 @@
 # How to use this thing
 
-This tool moves data from one place to another. You got databases like PostgreSQL, MongoDB, or just files sitting in a folder. You want that data in S3 as CSV, Parquet, or JSONL. Thats what this does.
+This tool moves data from databases (PostgreSQL, MongoDB, MySQL, etc.) or local files into S3 as CSV, Parquet, or JSONL.
 
 There are two ways to use it:
 
@@ -11,148 +11,191 @@ There are two ways to use it:
 
 # Part 1: Using the API
 
-First, start the server:
+## Start the server
 
 ```bash
-uv run uvicorn api.main:app --reload --port 8000
+uv run uvicorn api.main:app --reload --port 8001
 ```
 
-Open `http://localhost:8000/docs` and you can click buttons to test stuff.
+Open `http://localhost:8001/docs` for the interactive Swagger UI.
 
-## All the endpoints
+## All endpoints
 
 | Method | URL | What it does |
 |--------|-----|-------------|
 | `GET` | `/health` | Check if server is alive |
-| `GET` | `/sources` | See what sources you can pick |
-| `GET` | `/targets` | See what targets you can pick |
-| `POST` | `/migrate` | Start a migration (get a task_id back) |
-| `GET` | `/migrate/{task_id}` | Check if your migration finished |
+| `GET` | `/sources` | See what source types are available |
+| `GET` | `/targets` | See what target types are available |
+| `POST` | `/connections` | Save a database connection (tests it first) |
+| `GET` | `/connections` | List all saved connections |
+| `POST` | `/connections/{id}/databases` | List databases on that server |
+| `POST` | `/connections/{id}/tables` | List tables in that database |
+| `POST` | `/connections/{id}/migrate` | Migrate data from a saved connection to S3 |
+| `POST` | `/migrate` | Start a migration directly (no saved connection) |
+| `GET` | `/migrate/{task_id}` | Check migration status |
 
-## POST /migrate — the main one
+---
 
-You send a JSON body with these fields:
+## 1. Create a connection — POST /connections
 
-| Field | Required? | What it is |
-|-------|-----------|------------|
-| `source` | **Yes** | Where to read from: `postgresql`, `mongodb`, `sql`, `file_upload` |
-| `target` | **Yes** | Where to write to: `s3` |
-| `tables` | **Yes** | List of table names or collection names |
-| `source_config` | Depends | Settings for the source (see below) |
-| `target_config` | Depends | Settings for the target (see below) |
+Save your database details so you don't have to send them every time. The API connects and checks credentials before saving.
 
-### source_config for PostgreSQL
-
-| Field | Required? | What it is | Default |
-|-------|-----------|------------|---------|
-| `host` | **Yes** | Where your DB lives | `localhost` |
-| `port` | No | Port number | `5432` |
-| `database` | **Yes** | Database name | — |
-| `username` | **Yes** | Username | — |
-| `password` | **Yes** | Password | — |
-| `ssl_mode` | No | `disable`, `require`, etc | `prefer` |
-| `incremental_column` | No | Column to track progress (like `id`) | `null` |
-| `checkpoint_file` | No | Path to save progress (e.g. `C:/cp.json`) | `null` |
-| `batch_size` | No | Rows per batch | `20000` |
-
-### source_config for MongoDB
-
-| Field | Required? | What it is | Default |
-|-------|-----------|------------|---------|
-| `connection_string` | **Yes** | Full MongoDB connection string | — |
-| `database` | **Yes** | Database name | — |
-| `collection` | **Yes** | Collection name (must match one of `tables`) | — |
-| `incremental_field` | No | Field for incremental sync | `null` |
-| `checkpoint_file` | No | Path to save progress | `null` |
-| `batch_size` | No | Documents per batch | `20000` |
-
-### source_config for SQL (PostgreSQL, MySQL, MSSQL, Oracle, SQLite)
-
-| Field | Required? | What it is | Default |
-|-------|-----------|------------|---------|
-| `dialect` | **Yes** | `postgresql`, `mysql`, `mssql`, `oracle`, `sqlite` | `postgresql` |
-| `host` | **Yes** | Server address | `localhost` |
-| `port` | No | Port number | `5432` |
-| `database` | **Yes** | Database name | — |
-| `username` | **Yes** | Username | — |
-| `password` | **Yes** | Password | — |
-| `incremental_column` | No | Column for incremental sync | `null` |
-| `checkpoint_file` | No | Path to save progress | `null` |
-| `batch_size` | No | Rows per batch | `20000` |
-
-### source_config for File Upload (read files from your computer)
-
-| Field | Required? | What it is | Default |
-|-------|-----------|------------|---------|
-| `input_dir` | **Yes** | Full path to your folder | — |
-| `file_pattern` | No | `"*"` for all, `"*.pdf"` for PDFs only | `"*"` |
-| `files` | No | Pick specific files (overrides pattern) | `null` |
-| `recursive` | No | Scan subfolders too? | `false` |
-| `batch_size` | No | Files per batch | `100` |
-| `checkpoint_file` | No | Path to save which files are done | `null` |
-| `include_content` | No | Read file text into CSV? | `true` |
-
-### target_config for S3
-
-| Field | Required? | What it is | Default |
-|-------|-----------|------------|---------|
-| `bucket_name` | **Yes** | Your S3 bucket | — |
-| `region` | No | AWS region | `us-east-1` |
-| `file_format` | No | `csv`, `parquet`, or `jsonl` | `parquet` |
-| `compression` | No | `none`, `snappy`, or `gzip` | `snappy` |
-
-AWS credentials come from your `.env` file. No need to put them in the API request.
-
-### What you get back
-
-When you POST, you get a task_id:
-
+**Minimal for PostgreSQL:**
 ```json
 {
-  "task_id": "abc12345-...",
-  "status": "running",
-  "message": "Migration started"
+  "name": "My Aiven PG",
+  "source_type": "postgresql",
+  "host": "pg-1234.aivencloud.com",
+  "port": 27726,
+  "database": "defaultdb",
+  "username": "avnadmin",
+  "password": "your-password",
+  "ssl_mode": "require"
 }
 ```
 
-Then check status with `GET /migrate/{task_id}`.
-
-**When running:**
+**Minimal for MongoDB:**
 ```json
 {
-  "status": "running",
-  "result": null,
-  "error": null
+  "name": "My MongoDB",
+  "source_type": "mongodb",
+  "connection_string": "mongodb://localhost:27017",
+  "database": "mydb"
 }
 ```
 
-**When done:**
+**Minimal for SQL (MySQL, MSSQL, Oracle, SQLite):**
 ```json
 {
-  "status": "completed",
-  "result": [
+  "name": "My MySQL",
+  "source_type": "sql",
+  "dialect": "mysql",
+  "host": "localhost",
+  "port": 3306,
+  "database": "mydb",
+  "username": "root",
+  "password": "pass"
+}
+```
+
+**Minimal for File Upload:**
+```json
+{
+  "name": "My Files",
+  "source_type": "file_upload",
+  "input_dir": "C:/data/files"
+}
+```
+
+All optional fields you can include:
+
+| Field | For source | Default |
+|-------|-----------|---------|
+| `ssl_mode` | postgresql | `"prefer"` |
+| `ssl_cert` | postgresql | null |
+| `ssl_key` | postgresql | null |
+| `ssl_root_cert` | postgresql | null |
+| `pool_min_size` | postgresql | 2 |
+| `pool_max_size` | postgresql | 10 |
+| `pool_timeout` | postgresql | 30.0 |
+| `batch_size` | all | 20000 |
+| `incremental_column` | postgresql, sql | null |
+| `incremental_field` | mongodb | null |
+| `cursor_name` | postgresql | null |
+| `checkpoint_file` | all | null |
+| `max_pool_size` | mongodb | 10 |
+| `driver` | sql | null |
+| `extra_params` | sql | null |
+| `pool_size` | sql | 5 |
+| `max_overflow` | sql | 10 |
+| `file_pattern` | file_upload | `"*"` |
+| `recursive` | file_upload | false |
+| `include_content` | file_upload | false |
+| `files` | file_upload | null |
+
+**Response:** `{ "id": "abc-123", "name": "...", "source_type": "...", "config": {...}, "created_at": "..." }`
+
+---
+
+## 2. List connections — GET /connections
+
+Returns all saved connections. Passwords are hidden (`"****"`).
+
+**Response:**
+```json
+{
+  "connections": [
     {
-      "table_name": "users",
-      "rows_loaded": 50000,
-      "batch_count": 1
+      "id": "abc-123",
+      "name": "My Aiven PG",
+      "source_type": "postgresql",
+      "config": { "host": "...", "password": "****", ... },
+      "created_at": "2026-07-16T..."
     }
-  ],
-  "error": null
+  ]
 }
 ```
 
-**When it failed:**
+---
+
+## 3. List databases — POST /connections/{id}/databases
+
+Shows all databases on that server. No request body needed.
+
+**Response:** `{ "databases": ["demo_source", "postgres", "data_migration_meta"] }`
+
+---
+
+## 4. List tables — POST /connections/{id}/tables
+
+Shows all tables in the database. No request body needed.
+
+**Response:** `{ "tables": ["users", "orders", "products"] }`
+
+---
+
+## 5. Migrate from saved connection — POST /connections/{id}/migrate
+
+Uses the saved connection config. You only need to specify which tables and the S3 target.
+
 ```json
 {
-  "status": "failed",
-  "result": null,
-  "error": "relation \"users\" does not exist"
+  "tables": ["users", "orders"],
+  "target_config": {
+    "bucket_name": "dash-data-migration",
+    "region": "ap-south-1",
+    "access_key": "YOUR_AWS_KEY",
+    "secret_key": "YOUR_AWS_SECRET",
+    "file_format": "parquet",
+    "compression": "snappy"
+  }
 }
 ```
 
-## Full examples — copy and paste these
+**target_config options:**
 
-### PostgreSQL to S3
+| Field | Required | Default |
+|-------|----------|---------|
+| `bucket_name` | **Yes** | — |
+| `region` | No | `us-east-1` |
+| `access_key` | No | from env or IAM |
+| `secret_key` | No | from env or IAM |
+| `session_token` | No | null |
+| `prefix` | No | `""` |
+| `file_format` | No | `parquet` |
+| `compression` | No | `snappy` |
+| `batch_size` | No | 100000 |
+| `max_concurrent_uploads` | No | 5 |
+| `retry_count` | No | 3 |
+| `retry_delay` | No | 1.0 |
+
+**Response:** `{ "task_id": "xyz-789", "status": "running", "message": "Migration started" }`
+
+---
+
+## 6. Direct migrate — POST /migrate (no saved connection)
+
+Same as #5 but you send the full source config inline. Works the same as before.
 
 ```json
 {
@@ -168,128 +211,86 @@ Then check status with `GET /migrate/{task_id}`.
     "ssl_mode": "require"
   },
   "target_config": {
-    "bucket_name": "my-bucket",
-    "file_format": "csv",
-    "compression": "none"
+    "bucket_name": "dash-data-migration",
+    "region": "ap-south-1"
   }
 }
 ```
-
-### MongoDB to S3
-
-```json
-{
-  "source": "mongodb",
-  "target": "s3",
-  "tables": ["jobs"],
-  "source_config": {
-    "connection_string": "mongodb+srv://user:pass@cluster.mongodb.net/",
-    "database": "classroom",
-    "collection": "jobs"
-  },
-  "target_config": {
-    "bucket_name": "my-bucket",
-    "file_format": "csv",
-    "compression": "none"
-  }
-}
-```
-
-### File Upload (all files in a folder) to S3
-
-```json
-{
-  "source": "file_upload",
-  "target": "s3",
-  "tables": ["my-uploads"],
-  "source_config": {
-    "input_dir": "C:/Users/hp/Downloads",
-    "file_pattern": "*",
-    "include_content": true
-  },
-  "target_config": {
-    "bucket_name": "my-bucket",
-    "file_format": "csv",
-    "compression": "none"
-  }
-}
-```
-
-### File Upload (specific files) to S3
-
-```json
-{
-  "source": "file_upload",
-  "target": "s3",
-  "tables": ["documents"],
-  "source_config": {
-    "input_dir": "C:/Users/hp/Downloads",
-    "files": ["invoice.pdf", "report.docx", "notes.txt"],
-    "include_content": true
-  },
-  "target_config": {
-    "bucket_name": "my-bucket",
-    "file_format": "csv",
-    "compression": "none"
-  }
-}
-```
-
-## Quick reference: what you must include
-
-| Part | Required fields |
-|------|----------------|
-| PostgreSQL source | `host`, `database`, `username`, `password` |
-| MongoDB source | `connection_string`, `database`, `collection` |
-| SQL source | `dialect`, `host`, `database`, `username`, `password` |
-| File Upload source | `input_dir` |
-| S3 target | `bucket_name` |
 
 ---
 
-## Retry behavior (incremental sync)
+## 7. Check status — GET /migrate/{task_id}
 
-Every table gets **3 automatic retries**. If batch 2 fails, it waits 0 seconds, then retries. If it fails again, waits 2 seconds, retries. Third fail? Error comes back to you.
-
-To make retries smart (skip already-uploaded data), add two fields to your source config:
-
-- `incremental_column` — which column goes up (like `id` or `created_at`)
-- `checkpoint_file` — path to a local JSON file
-
-The query changes from:
-```sql
-SELECT * FROM users ORDER BY id
-```
-to:
-```sql
-SELECT * FROM users WHERE id > 50000 ORDER BY id
+**When running:**
+```json
+{ "status": "running", "result": null, "error": null }
 ```
 
-For file_upload, the checkpoint stores filenames already processed. Next run skips them.
+**When done:**
+```json
+{
+  "status": "completed",
+  "result": [
+    { "table_name": "users", "rows_loaded": 50000, "batch_count": 1, "errors": [] }
+  ],
+  "error": null
+}
+```
 
-Checkpoint is saved after each batch is successfully uploaded to S3. If a batch fails, checkpoint stays where it was, so retry only fetches what was missed.
+**When failed:**
+```json
+{ "status": "failed", "result": null, "error": "relation \"users\" does not exist" }
+```
+
+---
+
+## S3 folder structure
+
+Each migration creates a folder in S3 named after the **task_id** (UUID). Every table in that migration goes into the same folder.
+
+```
+my-bucket/
+  └── abc123-def-456/            ← task_id
+       ├── users_0.parquet
+       ├── users_1.parquet
+       └── orders_0.parquet
+```
+
+You can find the data for any migration by looking up the task_id. The metadata database also stores the task_id and s3_folder for every migration.
+
+---
+
+## Migration history in the database
+
+Every migration is automatically saved in the `migrations` table of the metadata database (`data_migration_meta`). You can query it directly in pgAdmin:
+
+```sql
+SELECT * FROM migrations ORDER BY created_at DESC;
+```
+
+| Column | What it stores |
+|--------|---------------|
+| id | task_id (UUID) — also the S3 folder name |
+| connection_id | Which connection was used |
+| connection_name | User-friendly name of the connection |
+| source_type | postgresql / mongodb / sql / file_upload |
+| target_type | s3 |
+| tables | JSON list of table names migrated |
+| status | running / completed / failed |
+| result | JSON with rows_loaded per table |
+| error | Error message if failed |
+| s3_folder | Same as id — the S3 folder where data is stored |
+| created_at | When the migration started |
+
+---
+
+## Retry behavior
+
+Each table gets 3 automatic retries. If a batch fails, it waits 0s, then 2s, then 4s. Checkpoint is saved after each successful batch upload. If the whole thing crashes, the next run picks up from the last checkpoint.
 
 ---
 
 # Part 2: Using Python imports directly
-
-You don't need the API at all. Just import the package and call functions.
-
-## Install
-
-```bash
-uv add file
-```
-
-Or:
-
-```bash
-pip install file
-```
-
-## migrate_all() — the one function you need
-
-Import it, call it, done.
 
 ```python
 from file import migrate_all
@@ -308,166 +309,48 @@ results = await migrate_all(
     target_kwargs={
         "bucket_name": "my-bucket",
         "file_format": "csv",
-        "compression": "none",
     },
 )
 
 print(f"Done. Moved {results[0].rows_loaded} rows")
 ```
 
-It connects, reads data in batches, writes to S3, disconnects. If something fails, it closes connections properly.
-
-## Source by source
-
-### PostgreSQL
-
-```python
-from file import migrate_all
-
-await migrate_all(
-    source_name="postgresql",
-    target_name="s3",
-    tables=["orders"],
-    source_kwargs={
-        "host": "localhost",
-        "port": 5432,
-        "database": "shop",
-        "username": "postgres",
-        "password": "pass",
-        "ssl_mode": "require",
-        "batch_size": 50000,
-    },
-    target_kwargs={"bucket_name": "my-bucket", "file_format": "csv", "compression": "none"},
-)
-```
-
-### MongoDB
-
-```python
-await migrate_all(
-    source_name="mongodb",
-    target_name="s3",
-    tables=["products"],
-    source_kwargs={
-        "connection_string": "mongodb://localhost:27017",
-        "database": "shop",
-        "collection": "products",
-    },
-    target_kwargs={"bucket_name": "my-bucket", "file_format": "csv", "compression": "none"},
-)
-```
-
-### SQL (MySQL, MSSQL, Oracle, SQLite too)
-
-```python
-await migrate_all(
-    source_name="sql",
-    target_name="s3",
-    tables=["users"],
-    source_kwargs={
-        "dialect": "mysql",
-        "host": "db.example.com",
-        "port": 3306,
-        "database": "shop",
-        "username": "root",
-        "password": "pass",
-    },
-    target_kwargs={"bucket_name": "my-bucket", "file_format": "csv", "compression": "none"},
-)
-```
-
-### File Upload (read files from your computer)
-
-Scans a folder, lists each file as a row (filename, size, type, content). Writes that list to S3.
-
-```python
-await migrate_all(
-    source_name="file_upload",
-    target_name="s3",
-    tables=["invoices"],
-    source_kwargs={
-        "input_dir": "/home/user/documents",
-        "file_pattern": "*.pdf",
-        "recursive": False,
-    },
-    target_kwargs={"bucket_name": "my-bucket", "file_format": "csv", "compression": "none"},
-)
-```
-
-The CSV on S3 looks like:
-
-| filename     | size | type |
-|--------------|------|------|
-| invoice1.pdf | 2450 | .pdf |
-| note.txt     | 120  | .txt |
-
-## Using incremental sync (same as API)
-
-Just add `incremental_column` and `checkpoint_file` to source_kwargs:
+The `migrate_all()` function accepts an optional `s3_folder` parameter. If you pass it, all tables go into that folder. If not, each table gets its own folder (old behavior).
 
 ```python
 results = await migrate_all(
-    source_name="postgresql",
-    target_name="s3",
-    tables=["users"],
-    source_kwargs={
-        "host": "db.example.com",
-        "database": "mydb",
-        "username": "admin",
-        "password": "secret123",
-        "incremental_column": "id",
-        "checkpoint_file": "C:/checkpoints/pg_users.json",
-    },
-    target_kwargs={"bucket_name": "my-bucket", "file_format": "csv"},
+    ...,
+    s3_folder="my-custom-folder-name",
 )
 ```
 
-## More control: create_source and create_target
+---
 
-If you want to do things yourself step by step:
+# Metadata database setup
 
-```python
-from file import create_source, create_target
+The API stores connections and migration history in PostgreSQL. Run this once:
 
-# Build connectors
-pg, pg_cfg = create_source("postgresql",
-    host="localhost",
-    database="shop",
-    username="postgres",
-    password="pass",
-)
-
-s3, s3_cfg = create_target("s3",
-    bucket_name="my-bucket",
-    file_format="csv",
-    compression="none",
-)
-
-# Connect
-await pg.connect(pg_cfg)
-await s3.connect(s3_cfg)
-
-# Extract
-result = await pg.extract("orders", pg_cfg)
-
-# Load
-load_result = await s3.load(result.batches, "orders")
-
-# Disconnect
-await pg.disconnect()
-await s3.disconnect()
-
-print(f"Moved {load_result.rows_loaded} rows")
+```bash
+python seed_metadata_db.py
 ```
 
-Useful when you want custom filters, transform data in between, or reuse connections for many tables.
+This creates:
+- Database `data_migration_meta` with tables `connections` and `migrations`
+- Database `demo_source` with a `users` table containing 4 dummy rows for testing
 
-## File formats
+Connection URL in `.env`:
+```
+METADATA_DATABASE_URL=postgresql://postgres:your_password@localhost:5432/data_migration_meta
+```
 
-| Format   | Extension | Notes |
-|----------|-----------|-------|
-| csv      | .csv      | Opens in Excel |
-| parquet  | .parquet  | Fast, compressed |
-| jsonl    | .jsonl    | One JSON per line |
+---
+
+# File formats
+
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| csv | .csv | Opens in Excel |
+| parquet | .parquet | Fast, compressed |
+| jsonl | .jsonl | One JSON per line |
 
 Set `file_format` in target config. Compression: `none`, `snappy`, or `gzip`.

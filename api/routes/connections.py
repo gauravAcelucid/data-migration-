@@ -131,6 +131,7 @@ async def migrate_from_connection(conn_id: str, req: ConnectionMigrateRequest):
 
     source_type = record["source_type"]
     source_config = record["config"]
+    connection_name = record.get("name")
 
     task_id = await run_migration(
         source=source_type,
@@ -138,6 +139,8 @@ async def migrate_from_connection(conn_id: str, req: ConnectionMigrateRequest):
         tables=req.tables,
         source_config=source_config,
         target_config=req.target_config,
+        connection_id=conn_id,
+        connection_name=connection_name,
     )
     return MigrationResponse(
         task_id=task_id,

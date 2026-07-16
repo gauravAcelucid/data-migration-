@@ -4,6 +4,7 @@ import platform
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from file import list_sources, list_targets
 
@@ -37,6 +38,14 @@ app = FastAPI(
     title="Data Migration API",
     description="Async-first data migration API powered by the file package",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
