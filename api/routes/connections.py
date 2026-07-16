@@ -1,15 +1,17 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
 from file import create_source, list_targets, migrate_all
 
+from ..auth import decode_token
 from ..metadata_storage import get_connection, list_connections, save_connection
 from ..schemas import (
     ConnectionCreate,
     ConnectionListResponse,
     ConnectionMigrateRequest,
     ConnectionResponse,
+    ConnectionTestResponse,
     DatabaseListResponse,
     MigrationResponse,
     TableListResponse,
@@ -52,35 +54,56 @@ def _build_config(req: ConnectionCreate) -> dict:
     return config
 
 
+def _get_user_id(authorization: str | None = None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization.removeprefix("Bearer ").strip()
+    user_id = decode_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user_id
+
+
 @router.post("", response_model=ConnectionResponse)
-async def create_connection(req: ConnectionCreate):
-    logger.info("POST /connections: name=%s type=%s", req.name, req.source_type)
+async def create_connection(req: ConnectionCreate, authorization: str = Header(None)):
+    user_id = _get_user_id(authorization)
+    logger.info("POST /connections: name=%s type=%s user=%s", req.name, req.source_type, user_id[:8])
     config = _build_config(req)
-    connector, cfg = create_source(req.source_type, **config)
-    try:
-        await connector.connect(cfg)
-        if not await connector.test_connection():
-            raise HTTPException(status_code=400, detail="Connection failed: ping returned false")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Connection failed: {e}")
-    finally:
-        await connector.disconnect()
-    conn_id = await save_connection(req.name, req.source_type, config)
+    conn_id = await save_connection(req.name, req.source_type, config, req.description, user_id)
     return ConnectionResponse(
         id=conn_id,
         name=req.name,
+        description=req.description,
         source_type=req.source_type,
         config=config,
         created_at=None,
     )
 
 
+@router.post("/test", response_model=ConnectionTestResponse)
+async def test_connection(req: ConnectionCreate, authorization: str = Header(None)):
+    _ = _get_user_id(authorization)
+    logger.info("POST /connections/test: name=%s type=%s", req.name, req.source_type)
+    config = _build_config(req)
+    connector, cfg = create_source(req.source_type, **config)
+    try:
+        await connector.connect(cfg)
+        if not await connector.test_connection():
+            raise HTTPException(status_code=400, detail="Connection test failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Connection test failed: {e}")
+    finally:
+        await connector.disconnect()
+    return ConnectionTestResponse(status="ok", message="Connection test successful")
+
+
 @router.get("", response_model=ConnectionListResponse)
-async def list_all_connections():
-    logger.info("GET /connections")
-    connections = await list_connections()
+async def list_all_connections(authorization: str = Header(None)):
+    user_id = _get_user_id(authorization)
+    logger.info("GET /connections user=%s", user_id[:8])
+    connections = await list_connections(user_id)
     return ConnectionListResponse(connections=connections)
 
 

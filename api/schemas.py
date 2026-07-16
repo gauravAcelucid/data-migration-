@@ -34,6 +34,7 @@ class TaskStatusResponse(BaseModel):
 class ConnectionCreate(BaseModel):
     name: str
     source_type: str
+    description: str = ""
 
     host: str | None = None
     port: int | None = None
@@ -74,9 +75,15 @@ class ConnectionCreate(BaseModel):
 class ConnectionResponse(BaseModel):
     id: str
     name: str
+    description: str = ""
     source_type: str
     config: dict
     created_at: str | None = None
+
+
+class ConnectionTestResponse(BaseModel):
+    status: str
+    message: str
 
 
 class ConnectionListResponse(BaseModel):
@@ -94,6 +101,29 @@ class DatabaseListResponse(BaseModel):
 class ConnectionMigrateRequest(BaseModel):
     tables: list[str]
     target_config: dict
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    name: str
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
 
 
 class HealthResponse(BaseModel):

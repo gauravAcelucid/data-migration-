@@ -29,17 +29,34 @@ async def seed():
     finally:
         await conn.close()
 
-    # Step 2: Create connections table and migrations table
+    # Step 2: Create users, connections, and migrations tables
     conn = await psycopg.AsyncConnection.connect(METADATA_URL)
     try:
         await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS connections (
                 id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL REFERENCES users(id),
                 name TEXT NOT NULL,
+                description TEXT DEFAULT '',
                 source_type TEXT NOT NULL,
                 config TEXT NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
+        """)
+        await conn.execute("""
+            ALTER TABLE connections ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)
+        """)
+        await conn.execute("""
+            ALTER TABLE connections ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS migrations (
@@ -57,7 +74,24 @@ async def seed():
             )
         """)
         await conn.commit()
-        print("Created tables: connections, migrations")
+
+        rows = await conn.execute("SELECT COUNT(*) FROM users")
+        count = (await rows.fetchone())[0]
+        if count == 0:
+            import hashlib, uuid, os
+            salt = os.urandom(32)
+            key = hashlib.pbkdf2_hmac("sha256", "demo123".encode(), salt, 100_000)
+            hashed = salt.hex() + ":" + key.hex()
+            await conn.execute(
+                "INSERT INTO users (id, email, password, name) VALUES (%s, %s, %s, %s)",
+                (str(uuid.uuid4()), "demo@example.com", hashed, "Demo User"),
+            )
+            await conn.commit()
+            print("Seeded demo user: demo@example.com / demo123")
+        else:
+            print("Users table already populated, skipping seed")
+
+        print("Created tables: users, connections, migrations")
     finally:
         await conn.close()
 

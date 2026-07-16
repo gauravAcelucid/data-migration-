@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from file import list_sources, list_targets
 
 from .metadata_storage import init_db
+from .routes.auth import router as auth_router
 from .routes.connections import router as connections_router
 from .schemas import (
     HealthResponse,
@@ -58,6 +59,7 @@ async def startup():
         logger.warning("Could not init metadata DB: %s (proceeding anyway)", e)
 
 
+app.include_router(auth_router)
 app.include_router(connections_router)
 
 
